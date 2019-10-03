@@ -6,6 +6,7 @@ using Windows.UI.Xaml;
 using Windows.UI.Xaml.Controls;
 using Windows.UI.Xaml.Media.Imaging;
 using System.Threading.Tasks;
+using System.Threading;
 
 // The Blank Page item template is documented at http://go.microsoft.com/fwlink/?LinkId=402352&clcid=0x409
 
@@ -25,6 +26,7 @@ namespace GraphDemo
         private byte[] data;
 
         private byte redValue, greenValue, blueValue;
+        private CancellationTokenSource tokenSource = null;
 
         public MainPage()
         {
@@ -39,7 +41,7 @@ namespace GraphDemo
         }
 
         // Generate the data for the graph and display it
-        private void plotButton_Click(object sender, RoutedEventArgs e)
+        private async void plotButton_Click(object sender, RoutedEventArgs e)
         {
             // Generate random values for the RGB intensity of the graph
             // The graph will appear in a different color each time the user clicks the Plot button
@@ -47,14 +49,18 @@ namespace GraphDemo
             redValue = (byte)rand.Next(0xFF);
             greenValue = (byte)rand.Next(0xFF);
             blueValue = (byte)rand.Next(0xFF);
+            tokenSource = new CancellationTokenSource();
+            CancellationToken token = tokenSource.Token;
 
             // Start a timer
             Stopwatch watch = Stopwatch.StartNew();
 
             // Generate the data for the graph
-            Task first = Task.Run(() => generateGraphData(data, 0, pixelWidth / 4));
-            Task second = Task.Run(() => generateGraphData(data, pixelWidth / 4, pixelWidth / 2));
-            Task.WaitAll(first, second);
+            Task first = Task.Run(() => generateGraphData(data, 0, pixelWidth / 4, token));
+            Task second = Task.Run(() => generateGraphData(data, pixelWidth / 4, pixelWidth / 2, token));
+            // Task.WaitAll(first, second);
+            await first;
+            await second;
 
             // Display the time taken to generate the data
             duration.Text = $"Duration (ms): {watch.ElapsedMilliseconds}";
@@ -70,21 +76,29 @@ namespace GraphDemo
         // Stop graph generation and display
         private void cancelButton_Click(object sender, RoutedEventArgs e)
         {
+            if (tokenSource != null)
+            {
+                tokenSource.Cancel();
+            }
         }
 
         // Complex function that generates the data for the graph
-        private void generateGraphData(byte[] data, int partitionStart, int partitionEnd)
+        private void generateGraphData(byte[] data, int partitionStart, int partitionEnd, CancellationToken token)
         {
-            int a = pixelWidth / 2;
-            int b = a * a;
-            int c = pixelHeight / 2;
+            double a = pixelWidth / 2;
+            double b = a * a;
+            double c = pixelHeight / 2;
 
-            for (int x = partitionStart; x < partitionEnd; x++)
+            for (double x = partitionStart; x < partitionEnd; x++)
             {
-                int s = x * x;
+                double s = x * x;
                 double p = Math.Sqrt(b - s);
                 for (double i = -p; i < p; i += 3)
                 {
+                    if (token.IsCancellationRequested)
+                    {
+                        return;
+                    }
                     double r = Math.Sqrt(s + i * i) / a;
                     double q = (r - 1) * Math.Sin(24 * r);
                     double y = i / 3 + (q * c);
